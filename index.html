@@ -279,6 +279,48 @@
       border: 1px solid var(--border);
       box-shadow: var(--shadow);
     }
+
+    .btn:focus-visible,
+    .color-card:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .loading-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(250,250,250,0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .loading-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .loading-spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text {
+      margin-top: 12px;
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
   </style>
 </head>
 <body>
@@ -312,6 +354,12 @@
 
   <div class="copied-toast" id="toast"></div>
 
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <p class="loading-text">正在分析图片...</p>
+  </div>
+
+  <script src="segmentation.js"></script>
   <script>
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
@@ -324,6 +372,7 @@
     const toast = document.getElementById('toast');
     const copyAllBtn = document.getElementById('copyAllBtn');
     const resetBtn = document.getElementById('resetBtn');
+    const loadingOverlay = document.getElementById('loadingOverlay');
 
     let currentColors = [];
 
@@ -386,9 +435,14 @@
       { name: '灰调紫', r: 160, g: 140, b: 170 }, { name: '深海蓝', r: 20, g: 50, b: 110 },
     ];
 
+    function colorDistSq(a, b) {
+      const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+      return 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+    }
+
     function colorDistance(a, b) {
       const dr = a[0] - b.r, dg = a[1] - b.g, db = a[2] - b.b;
-      return dr * dr + dg * dg + db * db;
+      return 2 * dr * dr + 4 * dg * dg + 3 * db * db;
     }
 
     function findNearestColor(rgb) {
@@ -423,60 +477,60 @@
       return pixels;
     }
 
-    function kmeans(pixels, k, iters) {
-      let centers = [];
-      for (let i = 0; i < k; i++) {
-        const p = pixels[Math.floor(Math.random() * pixels.length)];
-        centers.push({ rgb: [p.rgb[0], p.rgb[1], p.rgb[2]] });
-      }
-      for (let iter = 0; iter < iters; iter++) {
-        const groups = Array.from({ length: k }, () => []);
-        for (const p of pixels) {
-          let best = 0, bestDist = Infinity;
-          for (let j = 0; j < k; j++) {
-            const dr = p.rgb[0] - centers[j].rgb[0];
-            const dg = p.rgb[1] - centers[j].rgb[1];
-            const db = p.rgb[2] - centers[j].rgb[2];
-            const d = dr * dr + dg * dg + db * db;
-            if (d < bestDist) { bestDist = d; best = j; }
-          }
-          groups[best].push(p);
-        }
-        let changed = false;
-        for (let j = 0; j < k; j++) {
-          if (groups[j].length === 0) { centers[j] = { rgb: [0, 0, 0] }; continue; }
-          let sr = 0, sg = 0, sb = 0;
-          for (const p of groups[j]) { sr += p.rgb[0]; sg += p.rgb[1]; sb += p.rgb[2]; }
-          const nr = Math.round(sr / groups[j].length);
-          const ng = Math.round(sg / groups[j].length);
-          const nb = Math.round(sb / groups[j].length);
-          if (nr !== centers[j].rgb[0] || ng !== centers[j].rgb[1] || nb !== centers[j].rgb[2]) changed = true;
-          centers[j].rgb = [nr, ng, nb];
-        }
-        if (!changed) break;
-      }
-      const result = [];
-      for (let j = 0; j < k; j++) {
-        const group = [];
-        for (const p of pixels) {
-          const dr = p.rgb[0] - centers[j].rgb[0];
-          const dg = p.rgb[1] - centers[j].rgb[1];
-          const db = p.rgb[2] - centers[j].rgb[2];
-          if (dr * dr + dg * dg + db * db < 10000) group.push(p);
-        }
-        if (group.length > 0) {
-          let sx = 0, sy = 0;
-          for (const p of group) { sx += p.x; sy += p.y; }
-          result.push({
-            rgb: centers[j].rgb,
-            x: sx / group.length,
-            y: sy / group.length,
-            size: group.length
+    function histogramExtract(pixels, n) {
+      const Q = 8;
+      const bins = new Map();
+
+      for (const p of pixels) {
+        const qr = Math.floor(p.rgb[0] / Q);
+        const qg = Math.floor(p.rgb[1] / Q);
+        const qb = Math.floor(p.rgb[2] / Q);
+        const key = (qr << 10) | (qg << 5) | qb;
+        const e = bins.get(key);
+        if (e) {
+          e.count++;
+          e.sumR += p.rgb[0]; e.sumG += p.rgb[1]; e.sumB += p.rgb[2];
+          e.sumX += p.x; e.sumY += p.y;
+          if (p.isPerson) e.personCount++;
+        } else {
+          bins.set(key, {
+            count: 1,
+            sumR: p.rgb[0], sumG: p.rgb[1], sumB: p.rgb[2],
+            sumX: p.x, sumY: p.y,
+            personCount: p.isPerson ? 1 : 0
           });
         }
       }
-      result.sort((a, b) => b.size - a.size);
-      return result;
+
+      const total = pixels.length;
+      const entries = [];
+      for (const [key, e] of bins) {
+        if (e.count / total < 0.005) continue;
+        entries.push({
+          rgb: [Math.round(e.sumR / e.count), Math.round(e.sumG / e.count), Math.round(e.sumB / e.count)],
+          x: e.sumX / e.count,
+          y: e.sumY / e.count,
+          count: e.count,
+          personCount: e.personCount
+        });
+      }
+
+      entries.sort((a, b) => b.count - a.count);
+
+      for (let t = 60; t >= 10; t -= 5) {
+        const threshSq = t * t;
+        const selected = [];
+        for (const e of entries) {
+          let tooClose = false;
+          for (const s of selected) {
+            if (colorDistSq(e.rgb, s.rgb) < threshSq) { tooClose = true; break; }
+          }
+          if (!tooClose) selected.push(e);
+        }
+        if (selected.length >= n) return selected.slice(0, n);
+      }
+
+      return entries.slice(0, n);
     }
 
     function isSkinTone(rgb) {
@@ -489,39 +543,8 @@
       return true;
     }
 
-    function pickDistinct(clusters, n) {
-      const remaining = clusters.filter(c => !isSkinTone(c.rgb));
-      n = Math.min(n, remaining.length || clusters.length);
-      if (remaining.length === 0) {
-        return clusters.slice(0, n).map(c => ({ rgb: c.rgb, x: c.x, y: c.y }));
-      }
-      const selected = [remaining[0]];
-      while (selected.length < n) {
-        let best = null, bestDist = -1;
-        for (const c of remaining) {
-          if (selected.includes(c)) continue;
-          let minDist = Infinity;
-          for (const sel of selected) {
-            const dr = c.rgb[0] - sel.rgb[0], dg = c.rgb[1] - sel.rgb[1], db = c.rgb[2] - sel.rgb[2];
-            minDist = Math.min(minDist, dr * dr + dg * dg + db * db);
-          }
-          if (minDist > bestDist) { bestDist = minDist; best = c; }
-        }
-        if (best) selected.push(best); else break;
-      }
-      return selected.map(c => ({ rgb: c.rgb, x: c.x, y: c.y }));
-    }
-
-    function computeColorPositions(colors, clusters) {
-      return colors.map(pc => {
-        let best = clusters[0], bestDist = Infinity;
-        for (const c of clusters) {
-          const dr = pc.rgb[0] - c.rgb[0], dg = pc.rgb[1] - c.rgb[1], db = pc.rgb[2] - c.rgb[2];
-          const d = dr * dr + dg * dg + db * db;
-          if (d < bestDist) { bestDist = d; best = c; }
-        }
-        return { x: best.x, y: best.y, color: pc };
-      });
+    function computeColorPositions(colors) {
+      return colors.map(c => ({ x: c.x, y: c.y, color: c }));
     }
 
     function renderDots(dots) {
@@ -533,6 +556,7 @@
         dot.style.top = (d.y * 100) + '%';
         dot.style.background = d.color.hex;
         dot.dataset.index = i;
+        dot.setAttribute('aria-label', d.color.name + ' ' + d.color.hex);
 
         const label = document.createElement('span');
         label.className = 'dot-label';
@@ -567,15 +591,7 @@
         await navigator.clipboard.writeText(hex);
         showToast('已复制 ' + hex.toUpperCase());
       } catch {
-        const ta = document.createElement('textarea');
-        ta.value = hex.toUpperCase();
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showToast('已复制 ' + hex.toUpperCase());
+        showToast('复制失败，请手动复制');
       }
     }
 
@@ -629,40 +645,204 @@
       actions.style.display = 'flex';
     }
 
+    async function getPersonMask(img) {
+      const result = await segmentImage(img);
+      return {
+        mask: result.mask,
+        personRatio: result.personRatio,
+        hasPerson: result.personRatio > 0.05
+      };
+    }
+
+    function samplePixelsWeighted(img, count, mask, hasPerson) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = 240;
+      const h = canvas.height = Math.round(img.naturalHeight / img.naturalWidth * 240);
+      if (h < 1) return [];
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
+      const maskData = mask ? mask.data : null;
+
+      if (!hasPerson || !maskData) {
+        return samplePixels(img, count);
+      }
+
+      function isPerson(idx) { return maskData[idx] > 128; }
+      function isSkin(idx) { return isSkinTone([data[idx], data[idx + 1], data[idx + 2]]); }
+
+      const step = Math.sqrt(w * h / count);
+      const cols = Math.round(w / step);
+      const rows = Math.round(h / step);
+      const totalCells = cols * rows;
+
+      const personCellCount = Math.round(totalCells * 0.7);
+      const allCells = [];
+      for (let gy = 0; gy < rows; gy++) {
+        for (let gx = 0; gx < cols; gx++) {
+          allCells.push({ gx, gy });
+        }
+      }
+      for (let i = allCells.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allCells[i], allCells[j]] = [allCells[j], allCells[i]];
+      }
+      const personCells = allCells.slice(0, personCellCount);
+      const bgCells = allCells.slice(personCellCount);
+
+      function sampleCell(gx, gy, accept) {
+        for (let r = 0; r < 15; r++) {
+          const cx = (gx + 0.3 + Math.random() * 0.4) / cols;
+          const cy = (gy + 0.3 + Math.random() * 0.4) / rows;
+          const px = Math.min(Math.floor(cx * w), w - 1);
+          const py = Math.min(Math.floor(cy * h), h - 1);
+          const idx = (py * w + px) * 4;
+          if (accept(idx)) {
+            return { rgb: [data[idx], data[idx + 1], data[idx + 2]], x: cx, y: cy };
+          }
+        }
+        return null;
+      }
+
+      const pixels = [];
+
+      for (const cell of personCells) {
+        const p = sampleCell(cell.gx, cell.gy, (idx) => isPerson(idx) && !isSkin(idx));
+        if (p) { p.isPerson = true; pixels.push(p); }
+      }
+
+      for (const cell of bgCells) {
+        const p = sampleCell(cell.gx, cell.gy, (idx) => !isPerson(idx));
+        if (p) { p.isPerson = false; pixels.push(p); }
+      }
+
+      if (pixels.length < count) {
+        const step2 = Math.sqrt(w * h / (count * 4));
+        const cols2 = Math.round(w / step2);
+        const rows2 = Math.round(h / step2);
+        for (let gy = 0; gy < rows2 && pixels.length < count; gy++) {
+          for (let gx = 0; gx < cols2 && pixels.length < count; gx++) {
+            const cx = (gx + Math.random()) / cols2;
+            const cy = (gy + Math.random()) / rows2;
+            const px = Math.min(Math.floor(cx * w), w - 1);
+            const py = Math.min(Math.floor(cy * h), h - 1);
+            const idx = (py * w + px) * 4;
+            if (isPerson(idx) && isSkin(idx)) continue;
+            pixels.push({
+              rgb: [data[idx], data[idx + 1], data[idx + 2]],
+              x: cx, y: cy,
+              isPerson: isPerson(idx)
+            });
+          }
+        }
+      }
+
+      return pixels.slice(0, count);
+    }
+
     function handleFile(file) {
       if (!file || !file.type.match(/^image\/(jpeg|png|webp)$/)) {
         showToast('请上传 JPG、PNG 或 WebP 格式的图片');
         return;
       }
 
+      const MAX_SIZE = 20 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        showToast('图片文件过大，请上传小于 20MB 的图片');
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
+          loadingOverlay.classList.add('visible');
+
           try {
-            const pixels = samplePixels(img, 3000);
-            const clusters = kmeans(pixels, 16, 15);
-            const picked = pickDistinct(clusters, 6);
+            let mask = null, hasPerson = false;
+
+            try {
+              const segResult = await getPersonMask(img);
+              mask = segResult.mask;
+              hasPerson = segResult.hasPerson;
+            } catch (e) {
+              console.error('MediaPipe segmentation failed, falling back to uniform sampling:', e.message);
+            }
+
+            const pixels = samplePixelsWeighted(img, 3000, mask, hasPerson);
+
+            let picked;
+            if (hasPerson) {
+              const personPx = pixels.filter(p => p.isPerson);
+              const bgPx = pixels.filter(p => !p.isPerson);
+              const personColors = histogramExtract(personPx, 5);
+              const bgColors = histogramExtract(bgPx, 2);
+
+              picked = [...personColors];
+              for (const bc of bgColors) {
+                let dup = false;
+                for (const pc of personColors) {
+                  if (colorDistSq(bc.rgb, pc.rgb) < 35 * 35) { dup = true; break; }
+                }
+                if (!dup) picked.push(bc);
+              }
+
+              if (picked.length < 6) {
+                const all = histogramExtract(pixels, 10);
+                const used = new Set(picked);
+                for (const c of all) {
+                  if (picked.length >= 6) break;
+                  if (used.has(c)) continue;
+                  let dup = false;
+                  for (const s of picked) {
+                    if (colorDistSq(c.rgb, s.rgb) < 25 * 25) { dup = true; break; }
+                  }
+                  if (!dup) { picked.push(c); used.add(c); }
+                }
+              }
+              picked = picked.slice(0, 6);
+            } else {
+              picked = histogramExtract(pixels, 6);
+            }
+
+            for (const c of picked) {
+              let bestD = Infinity, bx = c.x, by = c.y;
+              for (const p of pixels) {
+                const d = colorDistSq(c.rgb, p.rgb);
+                if (d < bestD) { bestD = d; bx = p.x; by = p.y; }
+              }
+              c.x = bx; c.y = by;
+            }
+
             const colors = picked.map(c => {
               const match = findNearestColor(c.rgb);
               return {
                 hex: rgbToHex(c.rgb[0], c.rgb[1], c.rgb[2]),
                 rgb: c.rgb,
-                name: match.name
+                name: match.name,
+                x: c.x,
+                y: c.y
               };
             });
+
             previewImage.onload = () => {
               try {
-                const dots = computeColorPositions(colors, clusters);
+                const dots = computeColorPositions(colors);
+                renderPalette(colors);
                 renderDots(dots);
-              } catch (e) {}
+                previewArea.classList.add('visible');
+                dropZone.style.display = 'none';
+                loadingOverlay.classList.remove('visible');
+              } catch (e) {
+                console.error('Failed to render preview:', e);
+                loadingOverlay.classList.remove('visible');
+              }
             };
             previewImage.src = e.target.result;
-            previewArea.classList.add('visible');
-            dropZone.style.display = 'none';
-            renderPalette(colors);
-          } catch {
+          } catch (e) {
+            console.error('Failed to process image:', e);
             showToast('无法提取颜色，请尝试其他图片');
+            loadingOverlay.classList.remove('visible');
           }
         };
         img.src = e.target.result;
@@ -679,6 +859,7 @@
       dropZone.style.display = '';
       actions.style.display = 'none';
       fileInput.value = '';
+      loadingOverlay.classList.remove('visible');
     }
 
     dropZone.addEventListener('click', () => fileInput.click());

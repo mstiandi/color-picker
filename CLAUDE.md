@@ -7,7 +7,7 @@
 ## 技术栈
 
 - 纯 HTML/CSS/JS，单文件 `index.html`
-- `color-thief` 库（CDN 引入，MIT 开源）
+- 自实现 k-means 颜色提取（无外部依赖）
 - PWA（manifest.json + service worker），支持「添加到桌面」
 - 部署：Vercel / GitHub Pages（静态文件托管，免费）
 
