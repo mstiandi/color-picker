@@ -3,8 +3,17 @@
   'use strict';
 
   var CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747';
+  var TIMEOUT_MS = 8000;
   var segInstance = null;
   var loadPromise = null;
+
+  function withTimeout(promise, ms) {
+    return new Promise(function(resolve, reject) {
+      var timer = setTimeout(function() { reject(new Error('Timeout after ' + ms + 'ms')); }, ms);
+      promise.then(function(v) { clearTimeout(timer); resolve(v); })
+             .catch(function(e) { clearTimeout(timer); reject(e); });
+    });
+  }
 
   async function ensureLoaded() {
     if (segInstance) return segInstance;
@@ -12,18 +21,18 @@
 
     loadPromise = (async function() {
       if (!window.SelfieSegmentation) {
-        await new Promise(function(resolve, reject) {
+        await withTimeout(new Promise(function(resolve, reject) {
           var s = document.createElement('script');
           s.src = CDN + '/selfie_segmentation.js';
           s.onload = resolve;
           s.onerror = function() { reject(new Error('MediaPipe CDN load failed')); };
           document.head.appendChild(s);
-        });
+        }), TIMEOUT_MS);
       }
 
       segInstance = new SelfieSegmentation({ locateFile: function(f) { return CDN + '/' + f; } });
       segInstance.setOptions({ modelSelection: 0, selfieMode: false });
-      await segInstance.initialize();
+      await withTimeout(segInstance.initialize(), TIMEOUT_MS);
       return segInstance;
     })();
 
@@ -33,7 +42,7 @@
   window.segmentImage = async function(imgEl) {
     var seg = await ensureLoaded();
 
-    return new Promise(function(resolve, reject) {
+    return withTimeout(new Promise(function(resolve, reject) {
       seg.onResults(function(results) {
         try {
           var w = 240;
@@ -63,6 +72,6 @@
       });
 
       seg.send({ image: imgEl });
-    });
+    }), TIMEOUT_MS);
   };
 })();
