@@ -400,102 +400,125 @@
       return best;
     }
 
-    function sampleGridCells(img) {
-      const GRID = 12;
+    function samplePixels(img, count) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       const w = canvas.width = 240;
       const h = canvas.height = Math.round(img.naturalHeight / img.naturalWidth * 240);
       ctx.drawImage(img, 0, 0, w, h);
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const pixels = imageData.data;
-      const cellW = w / GRID, cellH = h / GRID;
-      const cells = [];
-      for (let gy = 0; gy < GRID; gy++) {
-        for (let gx = 0; gx < GRID; gx++) {
-          let sr = 0, sg = 0, sb = 0, count = 0;
-          const sx = Math.round(gx * cellW), sy = Math.round(gy * cellH);
-          const ex = Math.round((gx + 1) * cellW), ey = Math.round((gy + 1) * cellH);
-          for (let py = sy; py < ey && py < h; py++) {
-            for (let px = sx; px < ex && px < w; px++) {
-              const i = (py * w + px) * 4;
-              sr += pixels[i]; sg += pixels[i + 1]; sb += pixels[i + 2]; count++;
-            }
+      const data = ctx.getImageData(0, 0, w, h).data;
+      const pixels = [];
+      for (let i = 0; i < count; i++) {
+        const rx = Math.random(), ry = Math.random();
+        const bx = rx * rx, by = ry < 0.5 ? ry * 2 : (1 - ry) * 2;
+        const cx = 0.5 + (rx - 0.5) * (1 - bx * 0.8);
+        const cy = 0.5 + (ry - 0.5) * (1 - by * 0.5);
+        const px = Math.floor(cx * w), py = Math.floor(cy * h);
+        const idx = (Math.min(py, h - 1) * w + Math.min(px, w - 1)) * 4;
+        pixels.push({
+          rgb: [data[idx], data[idx + 1], data[idx + 2]],
+          x: cx, y: cy
+        });
+      }
+      return pixels;
+    }
+
+    function kmeans(pixels, k, iters) {
+      let centers = [];
+      for (let i = 0; i < k; i++) {
+        const p = pixels[Math.floor(Math.random() * pixels.length)];
+        centers.push({ rgb: [p.rgb[0], p.rgb[1], p.rgb[2]] });
+      }
+      for (let iter = 0; iter < iters; iter++) {
+        const groups = Array.from({ length: k }, () => []);
+        for (const p of pixels) {
+          let best = 0, bestDist = Infinity;
+          for (let j = 0; j < k; j++) {
+            const dr = p.rgb[0] - centers[j].rgb[0];
+            const dg = p.rgb[1] - centers[j].rgb[1];
+            const db = p.rgb[2] - centers[j].rgb[2];
+            const d = dr * dr + dg * dg + db * db;
+            if (d < bestDist) { bestDist = d; best = j; }
           }
-          cells.push({
-            rgb: [Math.round(sr / count), Math.round(sg / count), Math.round(sb / count)],
-            x: (gx + 0.5) / GRID,
-            y: (gy + 0.5) / GRID
+          groups[best].push(p);
+        }
+        let changed = false;
+        for (let j = 0; j < k; j++) {
+          if (groups[j].length === 0) { centers[j] = { rgb: [0, 0, 0] }; continue; }
+          let sr = 0, sg = 0, sb = 0;
+          for (const p of groups[j]) { sr += p.rgb[0]; sg += p.rgb[1]; sb += p.rgb[2]; }
+          const nr = Math.round(sr / groups[j].length);
+          const ng = Math.round(sg / groups[j].length);
+          const nb = Math.round(sb / groups[j].length);
+          if (nr !== centers[j].rgb[0] || ng !== centers[j].rgb[1] || nb !== centers[j].rgb[2]) changed = true;
+          centers[j].rgb = [nr, ng, nb];
+        }
+        if (!changed) break;
+      }
+      const result = [];
+      for (let j = 0; j < k; j++) {
+        const group = [];
+        for (const p of pixels) {
+          const dr = p.rgb[0] - centers[j].rgb[0];
+          const dg = p.rgb[1] - centers[j].rgb[1];
+          const db = p.rgb[2] - centers[j].rgb[2];
+          if (dr * dr + dg * dg + db * db < 10000) group.push(p);
+        }
+        if (group.length > 0) {
+          let sx = 0, sy = 0;
+          for (const p of group) { sx += p.x; sy += p.y; }
+          result.push({
+            rgb: centers[j].rgb,
+            x: sx / group.length,
+            y: sy / group.length,
+            size: group.length
           });
         }
       }
-      return cells;
+      result.sort((a, b) => b.size - a.size);
+      return result;
     }
 
     function isSkinTone(rgb) {
       const [r, g, b] = rgb;
-      if (r < 120 || g < 60 || b < 40) return false;
-      if (r > 255 || g > 240 || b > 235) return false;
+      if (r < 120 || g < 60 || b < 40 || r > 255 || g > 240 || b > 235) return false;
       if (r <= g || r <= b) return false;
       const rg = r - g, rb = r - b;
-      if (rg < 5 || rg > 120) return false;
-      if (rb < 10 || rb > 150) return false;
+      if (rg < 5 || rg > 120 || rb < 10 || rb > 150) return false;
       if (Math.abs(g - b) > 60) return false;
       return true;
     }
 
-    function cellSaturation(cell) {
-      const [r, g, b] = cell.rgb;
-      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-      return mx === 0 ? 0 : (mx - mn) / mx;
-    }
-
-    function cellCenterScore(cell) {
-      const dx = cell.x - 0.5, dy = cell.y - 0.5;
-      return 1 - Math.sqrt(dx * dx + dy * dy) / 0.7;
-    }
-
-    function pickDistinct(cells, n) {
-      const scored = cells.map(c => ({
-        ...c,
-        sat: cellSaturation(c),
-        ctr: Math.max(0, cellCenterScore(c))
-      }));
-      const selected = [];
-      const available = [...scored];
-      available.sort((a, b) => (b.sat * b.ctr) - (a.sat * a.ctr));
-      selected.push(available.splice(0, 1)[0]);
-      while (selected.length < n && available.length > 0) {
-        let best = null, bestScore = -1;
-        for (const cell of available) {
+    function pickDistinct(clusters, n) {
+      const remaining = clusters.filter(c => !isSkinTone(c.rgb));
+      if (remaining.length < n) {
+        remaining.push(...clusters.filter(c => isSkinTone(c.rgb)));
+        return remaining.slice(0, n).map(c => ({ rgb: c.rgb, x: c.x, y: c.y }));
+      }
+      const selected = [remaining[0]];
+      while (selected.length < n) {
+        let best = null, bestDist = -1;
+        for (const c of remaining) {
+          if (selected.includes(c)) continue;
           let minDist = Infinity;
           for (const sel of selected) {
-            const dr = cell.rgb[0] - sel.rgb[0];
-            const dg = cell.rgb[1] - sel.rgb[1];
-            const db = cell.rgb[2] - sel.rgb[2];
-            const d = dr * dr + dg * dg + db * db;
-            if (d < minDist) minDist = d;
+            const dr = c.rgb[0] - sel.rgb[0], dg = c.rgb[1] - sel.rgb[1], db = c.rgb[2] - sel.rgb[2];
+            minDist = Math.min(minDist, dr * dr + dg * dg + db * db);
           }
-          const score = minDist * (0.3 + cell.ctr * 0.7);
-          if (score > bestScore) { bestScore = score; best = cell; }
+          if (minDist > bestDist) { bestDist = minDist; best = c; }
         }
-        if (best) {
-          selected.push(best);
-          available.splice(available.indexOf(best), 1);
-        }
+        if (best) selected.push(best); else break;
       }
       return selected.map(c => ({ rgb: c.rgb, x: c.x, y: c.y }));
     }
 
-    function computeColorPositions(colors, cells) {
+    function computeColorPositions(colors, clusters) {
       return colors.map(pc => {
-        let best = cells[0], bestDist = Infinity;
-        for (const cell of cells) {
-          const dr = pc.rgb[0] - cell.rgb[0];
-          const dg = pc.rgb[1] - cell.rgb[1];
-          const db = pc.rgb[2] - cell.rgb[2];
+        let best = clusters[0], bestDist = Infinity;
+        for (const c of clusters) {
+          const dr = pc.rgb[0] - c.rgb[0], dg = pc.rgb[1] - c.rgb[1], db = pc.rgb[2] - c.rgb[2];
           const d = dr * dr + dg * dg + db * db;
-          if (d < bestDist) { bestDist = d; best = cell; }
+          if (d < bestDist) { bestDist = d; best = c; }
         }
         return { x: best.x, y: best.y, color: pc };
       });
@@ -617,10 +640,9 @@
         const img = new Image();
         img.onload = () => {
           try {
-            const allCells = sampleGridCells(img);
-            const nonSkinCells = allCells.filter(c => !isSkinTone(c.rgb));
-            const sourceCells = nonSkinCells.length >= 6 ? nonSkinCells : allCells;
-            const picked = pickDistinct(sourceCells, 6);
+            const pixels = samplePixels(img, 3000);
+            const clusters = kmeans(pixels, 10, 12);
+            const picked = pickDistinct(clusters, 6);
             const colors = picked.map(c => {
               const match = findNearestColor(c.rgb);
               return {
@@ -631,7 +653,7 @@
             });
             previewImage.onload = () => {
               try {
-                const dots = computeColorPositions(colors, allCells);
+                const dots = computeColorPositions(colors, clusters);
                 renderDots(dots);
               } catch (e) {}
             };
