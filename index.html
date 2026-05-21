@@ -444,12 +444,29 @@
       return true;
     }
 
+    function cellSaturation(cell) {
+      const [r, g, b] = cell.rgb;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      return mx === 0 ? 0 : (mx - mn) / mx;
+    }
+
+    function cellCenterScore(cell) {
+      const dx = cell.x - 0.5, dy = cell.y - 0.5;
+      return 1 - Math.sqrt(dx * dx + dy * dy) / 0.7;
+    }
+
     function pickDistinct(cells, n) {
+      const scored = cells.map(c => ({
+        ...c,
+        sat: cellSaturation(c),
+        ctr: Math.max(0, cellCenterScore(c))
+      }));
       const selected = [];
-      const available = [...cells];
-      selected.push(available.splice(Math.floor(Math.random() * available.length), 1)[0]);
+      const available = [...scored];
+      available.sort((a, b) => (b.sat * b.ctr) - (a.sat * a.ctr));
+      selected.push(available.splice(0, 1)[0]);
       while (selected.length < n && available.length > 0) {
-        let best = null, bestDist = -1;
+        let best = null, bestScore = -1;
         for (const cell of available) {
           let minDist = Infinity;
           for (const sel of selected) {
@@ -459,14 +476,15 @@
             const d = dr * dr + dg * dg + db * db;
             if (d < minDist) minDist = d;
           }
-          if (minDist > bestDist) { bestDist = minDist; best = cell; }
+          const score = minDist * (0.3 + cell.ctr * 0.7);
+          if (score > bestScore) { bestScore = score; best = cell; }
         }
         if (best) {
           selected.push(best);
           available.splice(available.indexOf(best), 1);
         }
       }
-      return selected;
+      return selected.map(c => ({ rgb: c.rgb, x: c.x, y: c.y }));
     }
 
     function computeColorPositions(colors, cells) {
