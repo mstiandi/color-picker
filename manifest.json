@@ -1,0 +1,17 @@
+{
+  "name": "取色器 - 配色灵感提取",
+  "short_name": "取色器",
+  "description": "上传图片，一键提取配色方案",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#1a1a2e",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='36' fill='%231a1a2e'/%3E%3Ccircle cx='60' cy='72' r='24' fill='%23F26C59'/%3E%3Ccircle cx='132' cy='60' r='24' fill='%23FFB347'/%3E%3Ccircle cx='48' cy='132' r='24' fill='%235DADE2'/%3E%3Ccircle cx='120' cy='120' r='24' fill='%2358D68D'/%3E%3Ccircle cx='92' cy='156' r='24' fill='%23AF7AC5'/%3E%3Ccircle cx='150' cy='140' r='24' fill='%23F4C2A3'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

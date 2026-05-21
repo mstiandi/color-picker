@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1a1a2e">
+  <title>取色器 - 一键提取配色灵感</title>
+  <link rel="manifest" href="manifest.json">
+  <script defer src="/_vercel/insights/script.js"></script>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --card: #ffffff;
+      --text: #1a1a2e;
+      --text-secondary: #666;
+      --border: #e0e0e0;
+      --accent: #1a1a2e;
+      --shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px 48px;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .header {
+      text-align: center;
+      padding-top: 16px;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .header p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 16px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: #f5f5f5;
+    }
+
+    .drop-zone .icon {
+      font-size: 40px;
+      margin-bottom: 8px;
+    }
+
+    .drop-zone .hint {
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+
+    .drop-zone .sub-hint {
+      font-size: 12px;
+      color: #999;
+      margin-top: 8px;
+    }
+
+    .drop-zone input[type="file"] {
+      display: none;
+    }
+
+    .preview-area {
+      display: none;
+    }
+
+    .preview-area.visible {
+      display: flex;
+      justify-content: center;
+    }
+
+    .preview-container {
+      position: relative;
+      display: inline-block;
+      line-height: 0;
+    }
+
+    .preview-container img {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 12px;
+      object-fit: contain;
+      box-shadow: var(--shadow);
+      display: block;
+    }
+
+    .dot-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .color-dot {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2.5px solid #fff;
+      box-shadow: 0 0 8px rgba(0,0,0,0.35), 0 0 0 3px rgba(0,0,0,0.08);
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      pointer-events: auto;
+      transition: transform 0.2s;
+      z-index: 2;
+    }
+
+    .color-dot:hover,
+    .color-dot.active {
+      transform: translate(-50%, -50%) scale(1.6);
+      z-index: 3;
+    }
+
+    .color-dot .dot-label {
+      position: absolute;
+      top: -28px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .color-dot:hover .dot-label,
+    .color-dot.active .dot-label {
+      opacity: 1;
+    }
+
+    .palette {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .color-card {
+      background: var(--card);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+
+    .color-card:active {
+      transform: scale(0.96);
+    }
+
+    .color-card .swatch {
+      height: 80px;
+    }
+
+    .color-card .info {
+      padding: 8px 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .color-card .name-label {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .color-card .hex-code {
+      font-size: 11px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+    }
+
+    .color-card .taobao-link {
+      font-size: 11px;
+      color: #ff6b35;
+      text-decoration: none;
+      padding: 4px 10px;
+      border: 1px solid #ff6b3530;
+      border-radius: 12px;
+      margin-top: 2px;
+    }
+
+    .color-card .taobao-link:active {
+      background: #ff6b3510;
+    }
+
+    .copied-toast {
+      position: fixed;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 20px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .copied-toast.show {
+      opacity: 1;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .btn:active {
+      opacity: 0.7;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <h1>取色器</h1>
+      <p>上传图片，自动提取配色方案</p>
+    </div>
+
+    <div class="drop-zone" id="dropZone">
+      <div class="icon">🎨</div>
+      <div class="hint">点击上传或拖拽图片到此处</div>
+      <div class="sub-hint">支持 JPG / PNG / WebP，也可 Ctrl+V 粘贴</div>
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp">
+    </div>
+
+    <div class="preview-area" id="previewArea">
+      <div class="preview-container" id="previewContainer">
+        <img id="previewImage" alt="预览">
+        <div class="dot-overlay" id="dotOverlay"></div>
+      </div>
+    </div>
+
+    <div class="palette" id="palette"></div>
+
+    <div class="actions" id="actions" style="display:none;">
+      <button class="btn btn-primary" id="copyAllBtn">复制全部配色</button>
+      <button class="btn btn-secondary" id="resetBtn">重新上传</button>
+    </div>
+  </div>
+
+  <div class="copied-toast" id="toast"></div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const previewArea = document.getElementById('previewArea');
+    const previewContainer = document.getElementById('previewContainer');
+    const previewImage = document.getElementById('previewImage');
+    const dotOverlay = document.getElementById('dotOverlay');
+    const palette = document.getElementById('palette');
+    const actions = document.getElementById('actions');
+    const toast = document.getElementById('toast');
+    const copyAllBtn = document.getElementById('copyAllBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    let currentColors = [];
+
+    function rgbToHex(r, g, b) {
+      return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+    }
+
+    const COLOR_NAMES = [
+      { name: '正红', r: 255, g: 0, b: 0 }, { name: '中国红', r: 205, g: 51, b: 51 },
+      { name: '玫瑰红', r: 255, g: 0, b: 128 }, { name: '豆沙红', r: 199, g: 99, b: 99 },
+      { name: '砖红', r: 178, g: 68, b: 34 }, { name: '珊瑚橘', r: 242, g: 108, b: 89 },
+      { name: '西柚粉', r: 255, g: 130, b: 130 }, { name: '脏粉', r: 196, g: 146, b: 146 },
+      { name: '橡皮粉', r: 225, g: 148, b: 148 }, { name: '樱花粉', r: 255, g: 183, b: 197 },
+      { name: '芭比粉', r: 255, g: 105, b: 180 }, { name: '干枯玫瑰', r: 188, g: 143, b: 143 },
+      { name: '豆沙粉', r: 222, g: 165, b: 164 }, { name: '蜜桃粉', r: 255, g: 200, b: 180 },
+      { name: '奶橘', r: 255, g: 180, b: 130 }, { name: '奶油杏', r: 255, g: 220, b: 180 },
+      { name: '焦糖橘', r: 204, g: 102, b: 0 }, { name: '南瓜橘', r: 240, g: 140, b: 60 },
+      { name: '奶茶色', r: 205, g: 170, b: 145 }, { name: '燕麦色', r: 217, g: 194, b: 166 },
+      { name: '卡其色', r: 195, g: 176, b: 145 }, { name: '驼色', r: 168, g: 132, b: 98 },
+      { name: '摩卡棕', r: 122, g: 83, b: 56 }, { name: '巧克力棕', r: 92, g: 51, b: 23 },
+      { name: '栗棕色', r: 139, g: 69, b: 19 }, { name: '浅杏', r: 245, g: 225, b: 200 },
+      { name: '暖白', r: 255, g: 250, b: 240 }, { name: '本白', r: 255, g: 255, b: 255 },
+      { name: '米白', r: 245, g: 245, b: 237 }, { name: '奶油白', r: 253, g: 245, b: 230 },
+      { name: '雾蓝', r: 128, g: 160, b: 200 }, { name: '雾霾蓝', r: 167, g: 183, b: 198 },
+      { name: '雾灰蓝', r: 166, g: 178, b: 195 }, { name: '雾紫蓝', r: 137, g: 156, b: 188 },
+      { name: '牛仔蓝', r: 92, g: 120, b: 156 }, { name: '婴儿蓝', r: 174, g: 213, b: 237 },
+      { name: '天蓝', r: 135, g: 206, b: 235 }, { name: '湖蓝', r: 64, g: 160, b: 200 },
+      { name: '宝蓝', r: 0, g: 70, b: 170 }, { name: '深蓝', r: 0, g: 30, b: 100 },
+      { name: '雾紫', r: 180, g: 160, b: 210 }, { name: '香芋紫', r: 190, g: 160, b: 210 },
+      { name: '奶fuji紫', r: 210, g: 185, b: 215 }, { name: '薰衣草紫', r: 180, g: 140, b: 210 },
+      { name: '紫罗兰', r: 140, g: 100, b: 180 }, { name: '葡萄紫', r: 100, g: 50, b: 130 },
+      { name: '牛油果绿', r: 152, g: 190, b: 100 }, { name: '抹茶绿', r: 156, g: 186, b: 118 },
+      { name: '果木绿', r: 167, g: 195, b: 119 }, { name: '薄荷绿', r: 152, g: 230, b: 185 },
+      { name: '浅草绿', r: 180, g: 215, b: 165 }, { name: '墨绿', r: 30, g: 80, b: 50 },
+      { name: '翡翠绿', r: 0, g: 168, b: 107 }, { name: '橄榄绿', r: 116, g: 132, b: 68 },
+      { name: '芥末黄', r: 218, g: 180, b: 82 }, { name: '鹅黄', r: 255, g: 238, b: 153 },
+      { name: '柠檬黄', r: 255, g: 240, b: 100 }, { name: '姜黄', r: 200, g: 155, b: 60 },
+      { name: '美拉德棕', r: 140, g: 100, b: 60 }, { name: '大地棕', r: 160, g: 130, b: 100 },
+      { name: '杏色', r: 245, g: 210, b: 170 }, { name: '肤色', r: 240, g: 200, b: 170 },
+      { name: '浅粉', r: 255, g: 210, b: 210 }, { name: '酒红', r: 128, g: 0, b: 32 },
+      { name: '玫红', r: 220, g: 50, b: 120 }, { name: '桃红', r: 240, g: 100, b: 130 },
+      { name: '烟灰粉', r: 200, g: 170, b: 170 }, { name: '橘红', r: 240, g: 80, b: 40 },
+      { name: '暗红', r: 140, g: 40, b: 40 }, { name: '冷灰', r: 175, g: 180, b: 185 },
+      { name: '暖灰', r: 180, g: 170, b: 160 }, { name: '炭灰', r: 54, g: 54, b: 54 },
+      { name: '雾灰', r: 195, g: 195, b: 195 }, { name: '银灰', r: 190, g: 190, b: 195 },
+      { name: '浅灰', r: 210, g: 210, b: 210 }, { name: '中灰', r: 128, g: 128, b: 128 },
+      { name: '深灰', r: 64, g: 64, b: 64 }, { name: '纯黑', r: 0, g: 0, b: 0 },
+      { name: '墨黑', r: 20, g: 20, b: 20 }, { name: '藏青', r: 25, g: 35, b: 65 },
+      { name: '深藏青', r: 15, g: 25, b: 45 }, { name: '烟灰蓝', r: 140, g: 160, b: 180 },
+      { name: '浅蓝', r: 200, g: 220, b: 240 }, { name: '天空蓝', r: 135, g: 200, b: 240 },
+      { name: '苔绿', r: 130, g: 150, b: 100 }, { name: '草绿', r: 100, g: 180, b: 80 },
+      { name: '军绿', r: 80, g: 100, b: 50 }, { name: '灰绿', r: 150, g: 170, b: 140 },
+      { name: '海绿', r: 80, g: 180, b: 160 }, { name: '浅紫', r: 220, g: 200, b: 230 },
+      { name: '淡紫', r: 230, g: 220, b: 240 }, { name: '藕荷色', r: 200, g: 180, b: 190 },
+      { name: '肤粉', r: 250, g: 210, b: 200 }, { name: '蜜瓜橙', r: 255, g: 160, b: 130 },
+      { name: '落日橘', r: 255, g: 120, b: 60 }, { name: '拿铁棕', r: 180, g: 140, b: 110 },
+      { name: '檀木棕', r: 110, g: 70, b: 40 }, { name: '烟熏玫瑰', r: 190, g: 130, b: 140 },
+      { name: '多巴胺粉', r: 255, g: 50, b: 140 }, { name: '静谧蓝', r: 155, g: 200, b: 230 },
+      { name: '元气橘', r: 255, g: 140, b: 60 }, { name: '森系绿', r: 100, g: 160, b: 100 },
+      { name: '灰调紫', r: 160, g: 140, b: 170 }, { name: '深海蓝', r: 20, g: 50, b: 110 },
+    ];
+
+    function colorDistance(a, b) {
+      const dr = a[0] - b.r, dg = a[1] - b.g, db = a[2] - b.b;
+      return dr * dr + dg * dg + db * db;
+    }
+
+    function findNearestColor(rgb) {
+      let best = COLOR_NAMES[0], bestDist = Infinity;
+      for (const c of COLOR_NAMES) {
+        const d = colorDistance(rgb, c);
+        if (d < bestDist) { bestDist = d; best = c; }
+      }
+      return best;
+    }
+
+    function sampleGridCells(img) {
+      const GRID = 12;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = 240;
+      const h = canvas.height = Math.round(img.naturalHeight / img.naturalWidth * 240);
+      ctx.drawImage(img, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const pixels = imageData.data;
+      const cellW = w / GRID, cellH = h / GRID;
+      const cells = [];
+      for (let gy = 0; gy < GRID; gy++) {
+        for (let gx = 0; gx < GRID; gx++) {
+          let sr = 0, sg = 0, sb = 0, count = 0;
+          const sx = Math.round(gx * cellW), sy = Math.round(gy * cellH);
+          const ex = Math.round((gx + 1) * cellW), ey = Math.round((gy + 1) * cellH);
+          for (let py = sy; py < ey && py < h; py++) {
+            for (let px = sx; px < ex && px < w; px++) {
+              const i = (py * w + px) * 4;
+              sr += pixels[i]; sg += pixels[i + 1]; sb += pixels[i + 2]; count++;
+            }
+          }
+          cells.push({
+            rgb: [Math.round(sr / count), Math.round(sg / count), Math.round(sb / count)],
+            x: (gx + 0.5) / GRID,
+            y: (gy + 0.5) / GRID
+          });
+        }
+      }
+      return cells;
+    }
+
+    function isSkinTone(rgb) {
+      const [r, g, b] = rgb;
+      if (r < 120 || g < 60 || b < 40) return false;
+      if (r > 255 || g > 240 || b > 235) return false;
+      if (r <= g || r <= b) return false;
+      const rg = r - g, rb = r - b;
+      if (rg < 5 || rg > 120) return false;
+      if (rb < 10 || rb > 150) return false;
+      if (Math.abs(g - b) > 60) return false;
+      return true;
+    }
+
+    function pickDistinct(cells, n) {
+      const selected = [];
+      const available = [...cells];
+      selected.push(available.splice(Math.floor(Math.random() * available.length), 1)[0]);
+      while (selected.length < n && available.length > 0) {
+        let best = null, bestDist = -1;
+        for (const cell of available) {
+          let minDist = Infinity;
+          for (const sel of selected) {
+            const dr = cell.rgb[0] - sel.rgb[0];
+            const dg = cell.rgb[1] - sel.rgb[1];
+            const db = cell.rgb[2] - sel.rgb[2];
+            const d = dr * dr + dg * dg + db * db;
+            if (d < minDist) minDist = d;
+          }
+          if (minDist > bestDist) { bestDist = minDist; best = cell; }
+        }
+        if (best) {
+          selected.push(best);
+          available.splice(available.indexOf(best), 1);
+        }
+      }
+      return selected;
+    }
+
+    function computeColorPositions(colors, cells) {
+      return colors.map(pc => {
+        let best = cells[0], bestDist = Infinity;
+        for (const cell of cells) {
+          const dr = pc.rgb[0] - cell.rgb[0];
+          const dg = pc.rgb[1] - cell.rgb[1];
+          const db = pc.rgb[2] - cell.rgb[2];
+          const d = dr * dr + dg * dg + db * db;
+          if (d < bestDist) { bestDist = d; best = cell; }
+        }
+        return { x: best.x, y: best.y, color: pc };
+      });
+    }
+
+    function renderDots(dots) {
+      dotOverlay.innerHTML = '';
+      dots.forEach((d, i) => {
+        const dot = document.createElement('div');
+        dot.className = 'color-dot';
+        dot.style.left = (d.x * 100) + '%';
+        dot.style.top = (d.y * 100) + '%';
+        dot.style.background = d.color.hex;
+        dot.dataset.index = i;
+
+        const label = document.createElement('span');
+        label.className = 'dot-label';
+        label.textContent = d.color.name;
+        dot.appendChild(label);
+
+        dot.addEventListener('mouseenter', () => {
+          const cards = palette.querySelectorAll('.color-card');
+          cards.forEach(c => { c.style.transform = c.dataset.index == i ? 'scale(1.03)' : ''; });
+        });
+        dot.addEventListener('mouseleave', () => {
+          palette.querySelectorAll('.color-card').forEach(c => { c.style.transform = ''; });
+        });
+        dot.addEventListener('click', (e) => {
+          e.stopPropagation();
+          copyColor(d.color.name + ' ' + d.color.hex.toUpperCase());
+        });
+
+        dotOverlay.appendChild(dot);
+      });
+    }
+
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add('show');
+      clearTimeout(toast._timeout);
+      toast._timeout = setTimeout(() => toast.classList.remove('show'), 1500);
+    }
+
+    async function copyColor(hex) {
+      try {
+        await navigator.clipboard.writeText(hex);
+        showToast('已复制 ' + hex.toUpperCase());
+      } catch {
+        const ta = document.createElement('textarea');
+        ta.value = hex.toUpperCase();
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('已复制 ' + hex.toUpperCase());
+      }
+    }
+
+    function renderPalette(colors) {
+      currentColors = colors;
+      palette.innerHTML = '';
+      colors.forEach((c, i) => {
+        const card = document.createElement('div');
+        card.className = 'color-card';
+        card.dataset.index = i;
+
+        const swatch = document.createElement('div');
+        swatch.className = 'swatch';
+        swatch.style.background = c.hex;
+
+        const info = document.createElement('div');
+        info.className = 'info';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'name-label';
+        nameSpan.textContent = c.name;
+
+        const hexSpan = document.createElement('span');
+        hexSpan.className = 'hex-code';
+        hexSpan.textContent = c.hex.toUpperCase();
+
+        const tbLink = document.createElement('a');
+        tbLink.className = 'taobao-link';
+        tbLink.href = 'https://s.taobao.com/search?q=' + encodeURIComponent(c.name);
+        tbLink.target = '_blank';
+        tbLink.textContent = '搜淘宝同色 →';
+        tbLink.addEventListener('click', (e) => e.stopPropagation());
+
+        card.addEventListener('mouseenter', () => {
+          const dots = dotOverlay.querySelectorAll('.color-dot');
+          dots.forEach(d => { d.classList.toggle('active', d.dataset.index == i); });
+        });
+        card.addEventListener('mouseleave', () => {
+          dotOverlay.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+        });
+
+        card.addEventListener('click', () => copyColor(c.name + ' ' + c.hex.toUpperCase()));
+
+        info.appendChild(nameSpan);
+        info.appendChild(hexSpan);
+        info.appendChild(tbLink);
+        card.appendChild(swatch);
+        card.appendChild(info);
+        palette.appendChild(card);
+      });
+      actions.style.display = 'flex';
+    }
+
+    function handleFile(file) {
+      if (!file || !file.type.match(/^image\/(jpeg|png|webp)$/)) {
+        showToast('请上传 JPG、PNG 或 WebP 格式的图片');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const allCells = sampleGridCells(img);
+            const nonSkinCells = allCells.filter(c => !isSkinTone(c.rgb));
+            const sourceCells = nonSkinCells.length >= 6 ? nonSkinCells : allCells;
+            const picked = pickDistinct(sourceCells, 6);
+            const colors = picked.map(c => {
+              const match = findNearestColor(c.rgb);
+              return {
+                hex: rgbToHex(c.rgb[0], c.rgb[1], c.rgb[2]),
+                rgb: c.rgb,
+                name: match.name
+              };
+            });
+            previewImage.onload = () => {
+              try {
+                const dots = computeColorPositions(colors, allCells);
+                renderDots(dots);
+              } catch (e) {}
+            };
+            previewImage.src = e.target.result;
+            previewArea.classList.add('visible');
+            dropZone.style.display = 'none';
+            renderPalette(colors);
+          } catch {
+            showToast('无法提取颜色，请尝试其他图片');
+          }
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function reset() {
+      currentColors = [];
+      palette.innerHTML = '';
+      dotOverlay.innerHTML = '';
+      previewArea.classList.remove('visible');
+      previewImage.src = '';
+      dropZone.style.display = '';
+      actions.style.display = 'none';
+      fileInput.value = '';
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      handleFile(e.dataTransfer.files[0]);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      handleFile(e.target.files[0]);
+    });
+
+    copyAllBtn.addEventListener('click', () => {
+      const allText = currentColors.map(c => c.name + ' ' + c.hex.toUpperCase()).join('\n');
+      copyColor(allText);
+    });
+
+    resetBtn.addEventListener('click', reset);
+
+    document.addEventListener('paste', (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.match(/^image\//)) {
+          e.preventDefault();
+          handleFile(item.getAsFile());
+          return;
+        }
+      }
+    });
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+</body>
+</html>
